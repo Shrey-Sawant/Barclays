@@ -4,7 +4,7 @@ const router = express.Router();
 
 const getPrediction = async (req, res) => {
   try {
-    const response = await axios.get("http://localhost:5000/predict");
+    const response = await axios.get("http://127.0.0.1:5000/predict");
     res.json(response.data);
   } catch (error) {
     console.error("Error calling ML service:", error.message);

@@ -69,6 +69,10 @@ def predict():
     feature_names = X.columns.tolist()
     results = []
 
+    # Sort indices by risk score to identify the highest risk customers for AI insights
+    risk_indices = sorted(range(len(probs)), key=lambda i: probs[i], reverse=True)
+    ai_insight_targets = set(risk_indices[:3]) # Limit to top 3 for performance
+
     for i, row in X.iterrows():
         risk_score = int(probs[i] * 100)
         health = calculate_health_score(row)
@@ -86,17 +90,17 @@ def predict():
 
         top_factors_list = [{"feature": f, "impact": float(v)} for f, v in top_factors]
         
-        # Call Grok for insights if the risk is high or alert is triggered
-        # We limit to high-risk to avoid excessive API calls and latency
+        # Call Grok for insights only for top 3 high-risk customers or if explicitly triggered
+        # This prevents the route from hanging due to 500 sequential API calls
         ai_insight = None
-        if risk_score > 60 or alert:
+        if i in ai_insight_targets:
             ai_insight = get_grok_insights({**row, "risk_score": risk_score}, top_factors_list)
 
         results.append({
             "customer_id": customers[i]["customer_id"],
             "risk_score": risk_score,
-            "health_score": health,
-            "alert": alert,
+            "health_score": float(health) if hasattr(health, 'item') else health,
+            "alert": bool(alert),
             "recommended_offer": offer,
             "advisory": advisory,
             "ai_insight": ai_insight,
