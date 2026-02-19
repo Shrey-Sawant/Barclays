@@ -15,16 +15,22 @@ def build_features(customers):
 
         # Safety checks for ratios
         income = profile.get("monthly_income", 1)
-        emi = emi_details.get("emi_amount", 0)
-        savings = accounts[0].get("current_balance", 0)
+        emi = emi_details.get("emi_amount", 1)  # Default to 1 to avoid div by zero
+        
+        # Safe access to account balance
+        savings = 0
+        if accounts and len(accounts) > 0:
+            savings = accounts[0].get("current_balance", 0)
         
         income_emi_ratio = income / emi if emi > 0 else 100
         savings_emi_ratio = savings / emi if emi > 0 else 100
         
         # Risk momentum
         risk_mom = 0
-        if len(rh) >= 2:
-            risk_mom = rh[-1].get("risk_score", 0) - rh[-2].get("risk_score", 0)
+        if isinstance(rh, list) and len(rh) >= 2:
+            last_score = rh[-1].get("risk_score", 0) if isinstance(rh[-1], dict) else 0
+            prev_score = rh[-2].get("risk_score", 0) if isinstance(rh[-2], dict) else 0
+            risk_mom = last_score - prev_score
 
         row = {
             "income_to_emi_ratio": income_emi_ratio,

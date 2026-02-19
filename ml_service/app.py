@@ -73,39 +73,53 @@ def predict():
     risk_indices = sorted(range(len(probs)), key=lambda i: probs[i], reverse=True)
     ai_insight_targets = set(risk_indices[:3]) # Limit to top 3 for performance
 
-    for i, row in X.iterrows():
-        risk_score = int(probs[i] * 100)
-        health = calculate_health_score(row)
-        offer = select_best_offer(probs[i], customers[i]["emi_details"]["emi_amount"])
-        advisory = generate_advisory(row)
-        alert = should_alert({**row, "risk_score": risk_score})
-        
-        top_factors = []
-        if shap_values is not None:
-            if isinstance(shap_values, list):
-                vals = shap_values[1][i]
-            else:
-                vals = shap_values[i]
-            top_factors = sorted(zip(feature_names, vals), key=lambda x: abs(x[1]), reverse=True)[:3]
+    for i, (idx, row) in enumerate(X.iterrows()):
+        try:
+            risk_score = int(probs[i] * 100)
+            health = calculate_health_score(row)
+            
+            # Ensure safe access to emi_amount
+            emi_amt = 0
+            if i < len(customers):
+                emi_amt = customers[i].get("emi_details", {}).get("emi_amount", 0)
+            
+            offer = select_best_offer(probs[i], emi_amt)
+            advisory = generate_advisory(row)
+            alert = should_alert({**row, "risk_score": risk_score})
+            
+            top_factors_list = []
+            if shap_values is not None:
+                try:
+                    # Handle different SHAP output formats (list for multi-class, array for binary)
+                    if isinstance(shap_values, list) and len(shap_values) > 1:
+                        vals = shap_values[1][i]
+                    elif hasattr(shap_values, "values"): # shp.Explanation object
+                        vals = shap_values.values[i]
+                    else:
+                        vals = shap_values[i]
+                    
+                    top_factors = sorted(zip(feature_names, vals), key=lambda x: abs(x[1]), reverse=True)[:3]
+                    top_factors_list = [{"feature": f, "impact": float(v)} for f, v in top_factors]
+                except Exception as shap_err:
+                    print(f"SHAP error for row {i}: {shap_err}")
+            
+            ai_insight = None
+            if i in ai_insight_targets:
+                ai_insight = get_grok_insights({**row, "risk_score": risk_score}, top_factors_list)
 
-        top_factors_list = [{"feature": f, "impact": float(v)} for f, v in top_factors]
-        
-        # Call Grok for insights only for top 3 high-risk customers or if explicitly triggered
-        # This prevents the route from hanging due to 500 sequential API calls
-        ai_insight = None
-        if i in ai_insight_targets:
-            ai_insight = get_grok_insights({**row, "risk_score": risk_score}, top_factors_list)
-
-        results.append({
-            "customer_id": customers[i]["customer_id"],
-            "risk_score": risk_score,
-            "health_score": float(health) if hasattr(health, 'item') else health,
-            "alert": bool(alert),
-            "recommended_offer": offer,
-            "advisory": advisory,
-            "ai_insight": ai_insight,
-            "top_factors": top_factors_list
-        })
+            results.append({
+                "customer_id": customers[i]["customer_id"] if i < len(customers) else f"UNKNOWN_{i}",
+                "risk_score": risk_score,
+                "health_score": float(health) if hasattr(health, 'item') else health,
+                "alert": bool(alert),
+                "recommended_offer": offer,
+                "advisory": advisory,
+                "ai_insight": ai_insight,
+                "top_factors": top_factors_list
+            })
+        except Exception as row_err:
+            print(f"Error processing row {i}: {row_err}")
+            continue
 
     return jsonify(results)
 
